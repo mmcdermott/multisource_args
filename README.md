@@ -7,6 +7,10 @@ _sole_ directory corresponding to a particular run of the model or instantiation
 If such a solution to this problem / similar utility already exists and is better than this, please let me
 know (via a github issue).
 
+## Installation
+There is no formal distribution on `pip` as of now. But you can install it with `pip`, from github directly,
+via `pip install git+https://github.com/mmcdermott/multisource_args`.
+
 ## Requirements
   * `>= Python 3.7`
 
