@@ -6,6 +6,8 @@ from dataclasses import dataclass, asdict
 from .argtype_utils import *
 
 class BaseArgs(ABC):
+    DESCRIPTION = "Base Descriptions (overwrite)"
+
     # This could also be extended to support other filetypes (XML, YAML, etc.)
     # If so extended, interface should be DRYed, with a generic "to_file" and "from_file" method taking
     # an optional (filetype) arg that can also be set at a class level (possibly statically), and a
@@ -42,7 +44,7 @@ class BaseArgs(ABC):
 
     @classmethod
     def from_commandline(cls, write_args_to_file=True):
-        parser = argparse.ArgumentParser()
+        parser = argparse.ArgumentParser(description=cls.DESCRIPTION)
 
         main_dir_arg, args_filename = cls._build_argparse_spec(parser)
 
