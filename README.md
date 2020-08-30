@@ -8,11 +8,11 @@ If such a solution to this problem / similar utility already exists and is bette
 know (via a github issue).
 
 ## Requirements
-  * >= Python 3.7
+  * `>= Python 3.7`
 
 You can use the "conda environment" spec in `env.yml` to meet these requirements, but it solely contains
 an appropriate version of python.
 
 ## Testing / Examples
 Please look at the test code in `tests/` to see examples of this system in use. To run tests, run 
-`python3 -m unittest tests.test_args` (from the main repository directory).
+`python -m unittest tests.test_args` (from the main repository directory).
