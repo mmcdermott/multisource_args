@@ -1,3 +1,6 @@
+# Likely Better Solutions
+This is likely superseded by [Hydra](https://hydra.cc), and anyone considering using this should likely use that instead. I'm still investigating Hydra, and will update this as I learn more, but for now you should strongly consider Hydra instead.
+
 # multisource_args
 A simple utility for maintaining arguments that can be used across multiple interfaces (predominately CLI and
 Jupyter Notebooks) and making reading and writing arguments to files default. This is based on something I've
