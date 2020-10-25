@@ -8,6 +8,9 @@ from .argtype_utils import *
 class BaseArgs(ABC):
     DESCRIPTION = "Base Descriptions (overwrite)"
 
+    FILE_IO = {
+        'JSON': 
+
     # This could also be extended to support other filetypes (XML, YAML, etc.)
     # If so extended, interface should be DRYed, with a generic "to_file" and "from_file" method taking
     # an optional (filetype) arg that can also be set at a class level (possibly statically), and a
