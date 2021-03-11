@@ -3,6 +3,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 import argparse, contextlib, logging, shlex, shutil, tempfile, unittest
 from unittest.mock import patch
+from pathlib import Path
 
 from multisource_args.args import *
 
@@ -13,7 +14,8 @@ LOG_STRS = {
     'error': 2,
 }
 OUTPUT_DIR_ARG = 'output_dir'
-FILENAME_ARG = 'filename.json'
+FILENAME_ARG = 'filename'
+FILE_EXTS = [JSON, PKL, YAML]
 
 @dataclass
 class ExampleArgs(BaseArgs):
@@ -73,11 +75,28 @@ class TestArgs(unittest.TestCase):
 
     def test_file_io(self):
         _, args = self.build_default_args()
-        args.to_json_file(os.path.join(self.output_dir, FILENAME_ARG))
+        for ext in FILE_EXTS:
+            filepath = os.path.join(self.output_dir, f"{FILENAME_ARG}.{ext}")
+            args.to_file(filepath)
 
-        new_args = ExampleArgs.from_json_file(os.path.join(self.output_dir, FILENAME_ARG))
+            new_args = ExampleArgs.from_file(filepath)
+            self.assertEqual(args, new_args)
 
-        self.assertEqual(args, new_args)
+    def test_file_io_path(self):
+        _, args = self.build_default_args()
+        for ext in FILE_EXTS:
+            filepath = Path(os.path.join(self.output_dir, f"{FILENAME_ARG}.{ext}"))
+            args.to_file(filepath)
+
+            new_args = ExampleArgs.from_file(filepath)
+            self.assertEqual(args, new_args)
+
+    def test_file_io_errors_on_nonexistent_read(self):
+        for ext in FILE_EXTS:
+            filepath = Path(os.path.join(self.output_dir, f"{FILENAME_ARG}.{ext}"))
+            with self.assertRaises(AssertionError):
+                with open(os.devnull, 'w') as f, contextlib.redirect_stderr(f):
+                    args = ExampleArgs.from_file(filepath)
 
     def test_reads_from_commandline(self):
         log = logging.getLogger("TestArgs.test_reads_from_commandline")
@@ -136,12 +155,14 @@ class TestArgs(unittest.TestCase):
             OUTPUT_DIR_ARG: self.output_dir, 'do_bool_arg': False, 'int_arg': 3, 'float_arg': 4.2,
             'log_level': 1, 'num_layers': 2
         }
+
+        filepath = os.path.join(self.output_dir, f"{FILENAME_ARG}.json")
         with patch.object(sys, 'argv', shlex.split(cmd_str)):
             args = ExampleArgs.from_commandline(write_args_to_file = True)
 
-            self.assertTrue(os.path.isfile(os.path.join(self.output_dir, FILENAME_ARG)))
+            self.assertTrue(os.path.isfile(filepath))
 
-        reloaded_args = ExampleArgs.from_json_file(os.path.join(self.output_dir, FILENAME_ARG))
+        reloaded_args = ExampleArgs.from_file(filepath)
 
         self.assertEqual(args, reloaded_args)
 
