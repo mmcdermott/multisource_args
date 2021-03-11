@@ -1,4 +1,4 @@
-import argparse, json, os, pickle, yaml
+import argparse, dataclasses, json, os, pickle, yaml
 from abc import ABC, abstractmethod
 from typing import Sequence
 from dataclasses import dataclass, asdict
@@ -7,10 +7,12 @@ from pathlib import Path, PosixPath
 from .argtype_utils import *
 
 JSON, PKL, YAML = 'json', 'pkl', 'yaml'
+ARGS = 'args'
 
-class BaseArgs(ABC):
+class BaseArgs:
     DESCRIPTION = "Base Descriptions (overwrite)"
     DEFAULT_EXTENSION = JSON
+    FILENAME = ARGS
 
     LOADERS_AND_DUMPERS = {
         # Format:
@@ -69,9 +71,60 @@ class BaseArgs(ABC):
     def to_dict(self): return asdict(self)
 
     @classmethod
-    @abstractmethod
     def _build_argparse_spec(cls, parser):
-        raise NotImplementedError("Must overwrite in base class!")
+        """
+        Attempts to automatically infer the argparse spec from the dataclass specification. Largely this is a
+        simple mapping of names, type functions, and default values from the dataclases fieldset to the
+        argparse API. Two things make this more challenging:
+          1. Help messages
+          2. The output directory arg
+        To accomodate these, the function does the following:
+          1. Help messages are by default empty. They can be specified in the dataclass spec using the fields
+          interface and the metadata option, setting the key `help_message` to the desired string. See below
+          for an example.
+          2. If the first argument is a string in the dataclass spec, it is assumed to be the ouptut dir arg.
+          This assumption can be overwritten (or confirmed) by using the metadata option and setting the key
+          `is_output_dir_arg` to True. See below for an example.
+
+        Metadata interface example:
+        ```
+        import dataclasses
+
+        @dataclasses.dataclass
+        class ExampleArgs(BaseArgs):
+            not_output_dir: str # this would normally be flagged as the output dir, but it is overwritten.
+            output_dir_metadata: str = dataclasses.field(metadata={'is_output_dir_arg': True})
+            has_help_str: int = dataclasses.field(metadata={'help_message': "Insert help string here."})
+        ```
+
+        This function can still be overwritten on a class-by-class basis with a custom argparse spec.
+        """
+
+        fields = dataclasses.fields(cls)
+        output_dir_arg = None
+        for i, field in enumerate(fields):
+            name, type_fn, default, metadata = field.name, field.type, field.default, field.metadata
+
+            is_bool_arg = type_fn is bool
+            is_required = isinstance(default, dataclasses._MISSING_TYPE)
+            default_val = None if is_required else default
+            help_message = metadata.get('help_message', '')
+            is_valid_output_dir_arg = (i == 0 and type_fn is str) or metadata.get('is_output_dir_arg', False)
+            if is_valid_output_dir_arg:
+                output_dir_arg = name
+
+            if is_bool_arg:
+                assert name.startswith('do_'), \
+                    f"Default argparse spec requires bool args to start with `do_`. {name} violates."
+                cls.add_bool_arg(parser, name, help_message, default_val, required=is_required)
+            else:
+                parser.add_argument(
+                    f"--{name}", type=type_fn, required=is_required, help=help_message, default=default_val
+                )
+
+        assert output_dir_arg is not None, "Never found an output dir!"
+
+        return output_dir_arg, cls.FILENAME
 
     @staticmethod
     def add_bool_arg(parser, arg, help_msg, default, required=False):

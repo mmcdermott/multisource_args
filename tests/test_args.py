@@ -1,7 +1,7 @@
 import os, sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-import argparse, contextlib, logging, shlex, shutil, tempfile, unittest
+import argparse, contextlib, dataclasses, logging, shlex, shutil, tempfile, unittest
 from unittest.mock import patch
 from pathlib import Path
 
@@ -18,7 +18,7 @@ FILENAME_ARG = 'filename'
 FILE_EXTS = [JSON, PKL, YAML]
 
 @dataclass
-class ExampleArgs(BaseArgs):
+class ExampleArgsCustomArgparseSpec(BaseArgs):
     # Output dir is required
     output_dir:                  str
     do_bool_arg:                bool = True
@@ -48,6 +48,17 @@ class ExampleArgs(BaseArgs):
 
         return OUTPUT_DIR_ARG, FILENAME_ARG
 
+@dataclass
+class ExampleArgsInferredArgparseSpec(BaseArgs):
+    # Output dir is required
+    output_dir:                  str
+    do_bool_arg:                bool = True
+    int_arg:                     int = dataclasses.field(default=60000, metadata={'help_message': "Int arg"})
+    float_arg:                 float = 1.0
+
+    DESCRIPTION = "Example program description."
+    FILENAME = FILENAME_ARG
+
 class TestArgs(unittest.TestCase):
     def setUp(self):
         self.output_dir = tempfile.mkdtemp()
@@ -63,23 +74,38 @@ class TestArgs(unittest.TestCase):
         'num_layers': 2,
     }):
         overall_args = {'output_dir': self.output_dir, **default_args}
-        return overall_args, ExampleArgs(**overall_args)
+        return overall_args, ExampleArgsCustomArgparseSpec(**overall_args)
+
+    def build_inferred_argparse_args(self, default_args = {
+        'do_bool_arg': True,
+        'int_arg': 5,
+        'float_arg': 3.14,
+    }):
+        overall_args = {'output_dir': self.output_dir, **default_args}
+        return overall_args, ExampleArgsInferredArgparseSpec(**overall_args)
 
     def test_errors_without_required_args(self):
         with self.assertRaises(Exception):
-            args = ExampleArgs()
+            args = ExampleArgsCustomArgparseSpec()
+
+        with self.assertRaises(Exception):
+            args = ExampleArgsInferredArgparseSpec()
 
     def test_construction_as_class(self):
         args_dict, args_cls = self.build_default_args()
         self.assertEqual(vars(args_cls), args_dict)
 
+        args_dict, args_cls = self.build_inferred_argparse_args()
+        self.assertEqual(vars(args_cls), args_dict)
+
+    # In the next several tests we just test the default version (with the custom argparse spec).
     def test_file_io(self):
         _, args = self.build_default_args()
         for ext in FILE_EXTS:
             filepath = os.path.join(self.output_dir, f"{FILENAME_ARG}.{ext}")
             args.to_file(filepath)
 
-            new_args = ExampleArgs.from_file(filepath)
+            new_args = ExampleArgsCustomArgparseSpec.from_file(filepath)
             self.assertEqual(args, new_args)
 
     def test_file_io_path(self):
@@ -88,7 +114,7 @@ class TestArgs(unittest.TestCase):
             filepath = Path(os.path.join(self.output_dir, f"{FILENAME_ARG}.{ext}"))
             args.to_file(filepath)
 
-            new_args = ExampleArgs.from_file(filepath)
+            new_args = ExampleArgsCustomArgparseSpec.from_file(filepath)
             self.assertEqual(args, new_args)
 
     def test_file_io_errors_on_nonexistent_read(self):
@@ -96,7 +122,7 @@ class TestArgs(unittest.TestCase):
             filepath = Path(os.path.join(self.output_dir, f"{FILENAME_ARG}.{ext}"))
             with self.assertRaises(AssertionError):
                 with open(os.devnull, 'w') as f, contextlib.redirect_stderr(f):
-                    args = ExampleArgs.from_file(filepath)
+                    args = ExampleArgsCustomArgparseSpec.from_file(filepath)
 
     def test_reads_from_commandline(self):
         log = logging.getLogger("TestArgs.test_reads_from_commandline")
@@ -138,12 +164,98 @@ class TestArgs(unittest.TestCase):
             new_argv = shlex.split(cmd_str)
             with patch.object(sys, 'argv', new_argv):
                 if expected_error is None:
-                    args = ExampleArgs.from_commandline(write_args_to_file = False)
+                    args = ExampleArgsCustomArgparseSpec.from_commandline(write_args_to_file = False)
                     self.assertEqual(vars(args), {OUTPUT_DIR_ARG: self.output_dir, **want_dict})
                 else:
                     with self.assertRaises(expected_error):
                         with open(os.devnull, 'w') as f, contextlib.redirect_stderr(f):
-                            args = ExampleArgs.from_commandline(write_args_to_file = False)
+                            args = ExampleArgsCustomArgparseSpec.from_commandline(write_args_to_file = False)
+
+    def test_reads_from_commandline_inferred_args(self):
+        log = logging.getLogger("TestArgs.test_reads_from_commandline")
+
+        cases = [ # [(commandline string, data structure, should error?), ...]
+            (
+                f"example_main.py --{OUTPUT_DIR_ARG} {self.output_dir} "
+                "--no_do_bool_arg --int_arg 3 --float_arg 4.2",
+                {'do_bool_arg': False, 'int_arg': 3, 'float_arg': 4.2},
+                None
+            ), (
+                f"example_main.py --{OUTPUT_DIR_ARG} {self.output_dir} "
+                "--do_bool_arg --int_arg 2 --float_arg 42.00",
+                {'do_bool_arg': True, 'int_arg': 2, 'float_arg': 42},
+                None
+            ), (
+                "example_main.py --do_bool_arg --int_arg 2 --float_arg 4.2",
+                None,
+                SystemExit # Should error out as it is missing the required argument output_dir.
+            ), (
+                "example_main.py --{OUTPUT_DIR_ARG} {self.output_dir} --do_bool_arg --int_arg 'wow35.328' "
+                "--float_arg 8.0",
+                None,
+                SystemExit # Should error out as the int arg isn't an int.
+            ),
+
+        ]
+
+        for cmd_str, want_dict, expected_error in cases:
+            new_argv = shlex.split(cmd_str)
+            with patch.object(sys, 'argv', new_argv):
+                if expected_error is None:
+                    args = ExampleArgsInferredArgparseSpec.from_commandline(write_args_to_file = False)
+                    self.assertEqual(vars(args), {OUTPUT_DIR_ARG: self.output_dir, **want_dict})
+                else:
+                    with self.assertRaises(expected_error):
+                        with open(os.devnull, 'w') as f, contextlib.redirect_stderr(f):
+                            args = ExampleArgsInferredArgparseSpec.from_commandline(write_args_to_file = False)
+
+    def test_inferred_spec_respects_metadata(self):
+        log = logging.getLogger("TestArgs.test_inferred_spec_respects_metadata")
+
+        HELP_MESSAGE = 'test_help_message'
+
+        @dataclass
+        class LocalExampleArgsInferredArgparseSpec(BaseArgs):
+            # Output dir is required
+            not_output_dir:    str
+            sneaky_output_dir: str  = dataclasses.field(metadata={'is_output_dir_arg': True})
+            has_help_message:  int  = dataclasses.field(
+                default=5, metadata={'help_message': HELP_MESSAGE}
+            )
+
+            DESCRIPTION = "Example program description."
+            FILENAME = FILENAME_ARG
+
+        parser = argparse.ArgumentParser()
+        main_dir_arg, args_filename = LocalExampleArgsInferredArgparseSpec._build_argparse_spec(parser)
+
+        self.assertEqual(args_filename, FILENAME_ARG)
+        self.assertEqual(main_dir_arg, 'sneaky_output_dir')
+        self.assertEqual(parser._option_string_actions[f"--has_help_message"].help, HELP_MESSAGE)
+
+    def test_inferred_spec_errors_with_invalid_dataclass(self):
+        log = logging.getLogger("TestArgs.test_inferred_spec_errors_with_invalid_dataclass")
+
+        @dataclass
+        class LocalExampleArgsInferredArgparseSpec(BaseArgs):
+            # Output dir is required
+            not_output_dir: int
+            FILENAME = FILENAME_ARG
+
+        with self.assertRaises(AssertionError):
+            parser = argparse.ArgumentParser()
+            main_dir_arg, args_filename = LocalExampleArgsInferredArgparseSpec._build_argparse_spec(parser)
+
+        @dataclass
+        class LocalExampleArgsInferredArgparseSpec(BaseArgs):
+            # Output dir is required
+            output_dir:   str
+            bad_bool_arg: bool = True
+            FILENAME = FILENAME_ARG
+
+        with self.assertRaises(AssertionError):
+            parser = argparse.ArgumentParser()
+            main_dir_arg, args_filename = LocalExampleArgsInferredArgparseSpec._build_argparse_spec(parser)
 
     def test_commandline_file_io(self):
         # Writing to file:
@@ -158,11 +270,11 @@ class TestArgs(unittest.TestCase):
 
         filepath = os.path.join(self.output_dir, f"{FILENAME_ARG}.json")
         with patch.object(sys, 'argv', shlex.split(cmd_str)):
-            args = ExampleArgs.from_commandline(write_args_to_file = True)
+            args = ExampleArgsCustomArgparseSpec.from_commandline(write_args_to_file = True)
 
             self.assertTrue(os.path.isfile(filepath))
 
-        reloaded_args = ExampleArgs.from_file(filepath)
+        reloaded_args = ExampleArgsCustomArgparseSpec.from_file(filepath)
 
         self.assertEqual(args, reloaded_args)
 
